@@ -1,0 +1,8 @@
+gymnasium==0.29.1
+stable-baselines3[extra]==2.2.1
+torch==2.2.0
+numpy
+opencv-python
+matplotlib
+tensorboard
+pygame
