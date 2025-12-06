@@ -35,6 +35,7 @@ class GridInvExtractor(BaseFeaturesExtractor):
 
     def forward(self, obs):
         grid = obs["grid"]
+        grid = grid.transpose(2, 0, 1)   # (H,W,C) → (C,H,W)
         inv = obs["inv"]
 
         cnn_out = self.cnn(grid)
