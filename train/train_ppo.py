@@ -1,9 +1,14 @@
+import sys
+import os
 import gymnasium as gym
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 
+# Add the project root to the path so we can import envs
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from envs.unrailed_env import UnrailedEnv
-from grid_inv_extractor import GridInvExtractor
+from grid_extractor import GridInvExtractor
 
 env = UnrailedEnv()
 check_env(env, warn=True)
@@ -14,7 +19,7 @@ policy_kwargs = dict(
 )
 
 model = PPO(
-    "MultiInputPolicy",
+    "CnnPolicy",
     env,
     policy_kwargs=policy_kwargs,
     verbose=1,
