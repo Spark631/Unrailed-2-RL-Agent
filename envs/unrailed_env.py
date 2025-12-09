@@ -65,6 +65,8 @@ class UnrailedEnv(gym.Env):
             "agent_position": spaces.Box(low=0, high=max(height, width), shape=(2,), dtype=np.int32),
         })        
 
+        # STATE
+        
         self.grid = None
         self.agent_position = None
         self.train_position = None
@@ -78,7 +80,18 @@ class UnrailedEnv(gym.Env):
             'materials': {'wood': 0, 'metal': 0}
         }
         
-        #osculation tracker
+        self.gathering = {
+            'in_progress': False,
+            'type': None,
+            'target': None,
+            'progress': 0,
+            'time_required': 10
+        }
+
+        self.remaining_trees = 0
+        self.remaining_rocks = 0
+        
+        # osculation tracker
         self.pos_history = deque(maxlen=5)
 
         self.reset()
@@ -94,6 +107,14 @@ class UnrailedEnv(gym.Env):
             'time_to_craft': 5,
             'materials': {'wood': 0, 'metal': 0}
         }
+        
+        self.gathering = {
+            'in_progress': False,
+            'type': None,
+            'target': None,
+            'progress': 0,
+            'time_required': 5
+        }
 
         map_config = {"seed": seed}
         
@@ -102,18 +123,18 @@ class UnrailedEnv(gym.Env):
             map_config["p_tree"] = 0.0
             map_config["p_rock"] = 0.0
             
-        self.grid, state = generate_map(map_config)
+        self.grid, agent_pos, train_pos, station_pos = generate_map(map_config)
         
         self.height, self.width, _ = self.grid.shape
         
-        self.agent_position = list(state['agent_pos'])
-        self.train_position = [state['train_row'], state['train_head_cols'][0]] # Approximate head pos
+        self.agent_position = list(agent_pos)
+        self.train_position = list(train_pos)
         
         self.pos_history.clear()
         self.pos_history.append(tuple(self.agent_position))
         
         # default station position from map_gen
-        self.station_position = state['station_entry']
+        self.station_position = station_pos
 
         # config 1 override: Randomize station position to prevent overfitting
         if self.config == 1:
@@ -135,6 +156,14 @@ class UnrailedEnv(gym.Env):
                     self.grid[r, c, STATION] = 1
                     self.station_position = (r, c)
                     break
+
+        # TREE AND ROCK COUNT        
+        if self.config != 1:
+            self.remaining_trees = int(self.grid[:, :, TREES].sum())
+            self.remaining_rocks = int(self.grid[:, :, STONE].sum())
+        else:
+            self.remaining_trees = 0
+            self.remaining_rocks = 0
 
         return self._get_observation(), {}
 
@@ -203,22 +232,10 @@ class UnrailedEnv(gym.Env):
                     return ['deposit']
 
             # chopping
-            if self.grid[ar, ac, TREES] == 1:
-                if self.inventory['held_item'] == 'axe':
-                    self.grid[ar, ac, TREES] = 0
-                    self.grid[ar, ac, OBSTACLES] = 0 
-                    self.grid[ar, ac, WOOD] = 1
-                    interacted = True
-                    events.append('chop')
+            # Removed manual interaction for chopping
 
             # mining
-            if self.grid[ar, ac, STONE] == 1:
-                if self.inventory['held_item'] == 'pickaxe':
-                    self.grid[ar, ac, STONE] = 0
-                    self.grid[ar, ac, OBSTACLES] = 0 
-                    self.grid[ar, ac, METAL] = 1
-                    interacted = True
-                    events.append('mine')
+            # Removed manual interaction for mining
         
         if interacted:
             return events
@@ -310,6 +327,79 @@ class UnrailedEnv(gym.Env):
             events.append('wall_bump')
 
         new_pos = tuple(self.agent_position)
+
+        # Auto-Gathering Logic (After movement)
+        # Only gather if we are standing still (STAY)
+        if action == STAY:
+            # 1. Check if current gathering is still valid
+            if self.gathering['in_progress']:
+                gr, gc = self.gathering['target']
+                # Check conditions: Adjacent + Tool
+                # Use new agent position
+                nr, nc = self.agent_position
+                is_adjacent = (abs(nr - gr) + abs(nc - gc) == 1)
+                
+                has_tool = False
+                if self.gathering['type'] == 'chop' and self.inventory['held_item'] == 'axe':
+                    has_tool = True
+                elif self.gathering['type'] == 'mine' and self.inventory['held_item'] == 'pickaxe':
+                    has_tool = True
+                    
+                if not is_adjacent or not has_tool:
+                    # Reset if moved away or lost tool
+                    self.gathering['in_progress'] = False
+                    self.gathering['progress'] = 0
+                    self.gathering['target'] = None
+                    self.gathering['type'] = None
+
+            # 2. If not gathering (or just reset), look for new target
+            if not self.gathering['in_progress']:
+                nr, nc = self.agent_position
+                for ar, ac in self.get_adjacent_cells(nr, nc):
+                    # Check for trees
+                    if self.grid[ar, ac, TREES] == 1 and self.inventory['held_item'] == 'axe':
+                        self.gathering['in_progress'] = True
+                        self.gathering['type'] = 'chop'
+                        self.gathering['target'] = (ar, ac)
+                        self.gathering['progress'] = 0
+                        break # Only gather one thing at a time
+                    
+                    # Check for rocks
+                    if self.grid[ar, ac, STONE] == 1 and self.inventory['held_item'] == 'pickaxe':
+                        self.gathering['in_progress'] = True
+                        self.gathering['type'] = 'mine'
+                        self.gathering['target'] = (ar, ac)
+                        self.gathering['progress'] = 0
+                        break
+
+            # 3. Increment progress if gathering
+            if self.gathering['in_progress']:
+                self.gathering['progress'] += 1
+                if self.gathering['progress'] >= self.gathering['time_required']:
+                    # Complete
+                    gr, gc = self.gathering['target']
+                    self.gathering['in_progress'] = False
+                    self.gathering['target'] = None
+                    self.grid[gr, gc, OBSTACLES] = 0
+                    
+                    if self.gathering['type'] == 'chop':
+                        self.grid[gr, gc, TREES] = 0
+                        self.grid[gr, gc, WOOD] = 1
+                        self.remaining_trees -= 1
+                        events.append('chop')
+                    elif self.gathering['type'] == 'mine':
+                        self.grid[gr, gc, STONE] = 0
+                        self.grid[gr, gc, METAL] = 1
+                        self.remaining_rocks -= 1
+                        events.append('mine')
+                    
+                    self.gathering['type'] = None
+        else:
+            # If we moved or interacted, we stop gathering
+            self.gathering['in_progress'] = False
+            self.gathering['progress'] = 0
+            self.gathering['target'] = None
+            self.gathering['type'] = None
 
         delta = 0
         if new_pos != old_pos:

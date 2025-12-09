@@ -55,85 +55,95 @@ class SuccessRateCallback(BaseCallback):
 
 def main():
     #  PHASE 1: MOVEMENT 
-    print("\n=== PHASE 1: LEARNING TO MOVE (Config 1) ===")
-    env_move = UnrailedEnv(config=1)
+    # print("\n=== PHASE 1: LEARNING TO MOVE (Config 1) ===")
+    # env_move = UnrailedEnv(config=1)
     
-    policy_kwargs = dict(
-        features_extractor_class=GridInvExtractor,
-        features_extractor_kwargs=dict(features_dim=256),
-    )
+    # policy_kwargs = dict(
+    #     features_extractor_class=GridInvExtractor,
+    #     features_extractor_kwargs=dict(features_dim=256),
+    # )
 
-    model = PPO(
-        "MultiInputPolicy",
-        env_move,
-        policy_kwargs=policy_kwargs,
-        verbose=1,
-        tensorboard_log="./tb_logs",
-        learning_rate=0.0003,
-        ent_coef=0.05,        #for exploration
-        n_steps=2048,
-        batch_size=64,
-        gamma=0.99,           # discount factor for long-term rewards
-        gae_lambda=0.95,      # GAE parameter for advantage estimation
-        n_epochs=10,          
-        clip_range=0.2,       
-    )
-
-    success_callback = SuccessRateCallback(check_freq=2048, verbose=1)
-    
-    # model = PPO.load("ppo_phase1_movement", env=env_move, tensorboard_log="./tb_logs")
-    model.learn(
-        total_timesteps=500000, 
-        tb_log_name="PPO_Phase1_Movement",
-        callback=success_callback
-    )
-    model.save("ppo_phase1_movement")
-    
-    if len(success_callback.episode_successes) > 0:
-        final_success_rate = np.mean(success_callback.episode_successes[-100:]) * 100
-        print(f"\n=== Phase 1 Training Complete ===")
-        print(f"Final Success Rate (last 100 eps): {final_success_rate:.1f}%")
-        print(f"Total Episodes: {len(success_callback.episode_successes)}")
-        print(f"Model saved to: ppo_phase1_movement.zip")
-    else:
-        print("Phase 1 Complete. Model saved.")
-    
-    #  PHASE 2: GATHERING 
-    # print("\n=== PHASE 2: LEARNING TO GATHER (Config 2) ===")
-    
-    # env_gather = UnrailedEnv(config=2)
-    
-    # model = PPO.load(
-    #     "ppo_phase1_movement", 
-    #     env=env_gather, 
+    # model = PPO(
+    #     "MultiInputPolicy",
+    #     env_move,
+    #     policy_kwargs=policy_kwargs,
+    #     verbose=1,
     #     tensorboard_log="./tb_logs",
-    #     custom_objects={
-    #         "features_extractor_class": GridInvExtractor,
-    #         "features_extractor_kwargs": dict(features_dim=256),
-    #     }
+    #     learning_rate=0.0003,
+    #     ent_coef=0.05,        #for exploration
+    #     n_steps=2048,
+    #     batch_size=64,
+    #     gamma=0.99,           # discount factor for long-term rewards
+    #     gae_lambda=0.95,      # GAE parameter for advantage estimation
+    #     n_epochs=10,          
+    #     clip_range=0.2,       
     # )
+
+    # success_callback = SuccessRateCallback(check_freq=2048, verbose=1)
     
-    # success_callback_p2 = SuccessRateCallback(check_freq=2048, verbose=1)
-    
+    # # model = PPO.load("ppo_phase1_movement", env=env_move, tensorboard_log="./tb_logs")
     # model.learn(
-    #     total_timesteps=50000, 
-    #     tb_log_name="PPO_Phase2_Gathering",
-    #     callback=success_callback_p2,
-    #     reset_num_timesteps=False  # Continue timestep count from Phase 1
+    #     total_timesteps=500000, 
+    #     tb_log_name="PPO_Phase1_Movement",
+    #     callback=success_callback
     # )
-    # model.save("ppo_phase2_gathering")
+    # model.save("ppo_phase1_movement")
     
-    # # Print final statistics
-    # if len(success_callback_p2.episode_successes) > 0:
-    #     final_success_rate = np.mean(success_callback_p2.episode_successes[-100:]) * 100
-    #     print(f"\n=== Phase 2 Training Complete ===")
+    # if len(success_callback.episode_successes) > 0:
+    #     final_success_rate = np.mean(success_callback.episode_successes[-100:]) * 100
+    #     print(f"\n=== Phase 1 Training Complete ===")
     #     print(f"Final Success Rate (last 100 eps): {final_success_rate:.1f}%")
-    #     print(f"Total Episodes: {len(success_callback_p2.episode_successes)}")
-    #     print(f"Model saved to: ppo_phase2_gathering.zip")
+    #     print(f"Total Episodes: {len(success_callback.episode_successes)}")
+    #     print(f"Model saved to: ppo_phase1_movement.zip")
     # else:
-    #     print("Phase 2 Complete. Model saved.")
+    #     print("Phase 1 Complete. Model saved.")
     
-    # return True
+    # PHASE 2: GATHERING 
+    print("\n=== PHASE 2: LEARNING TO GATHER (Config 2) ===")
+    
+    env_gather = UnrailedEnv(config=2)
+    
+    # Load Phase 1 model to start
+    if not os.path.exists("ppo_phase1_movement.zip"):
+        print("Error: ppo_phase1_movement.zip not found. Please train Phase 1 first.")
+        return
+
+    print("Loading Phase 1 weights...")
+    model = PPO.load(
+        "ppo_phase1_movement", 
+        env=env_gather, 
+        tensorboard_log="./tb_logs",
+        custom_objects={
+            "features_extractor_class": GridInvExtractor,
+            "features_extractor_kwargs": dict(features_dim=256),
+        }
+    )
+    
+    # Lower learning rate for fine-tuning? Or keep same? 
+    # Usually fine-tuning uses smaller LR, but here the task is quite different (new rewards).
+    # We'll keep default or set it explicitly if needed. PPO.load preserves the optimizer state usually.
+    
+    success_callback_p2 = SuccessRateCallback(check_freq=2048, verbose=1)
+    
+    model.learn(
+        total_timesteps=300000,  # Increased to give time to learn gathering
+        tb_log_name="PPO_Phase2_Gathering",
+        callback=success_callback_p2,
+        reset_num_timesteps=False  # Continue timestep count from Phase 1
+    )
+    model.save("ppo_phase2_gathering")
+    
+    # Print final statistics
+    if len(success_callback_p2.episode_successes) > 0:
+        final_success_rate = np.mean(success_callback_p2.episode_successes[-100:]) * 100
+        print(f"\n=== Phase 2 Training Complete ===")
+        print(f"Final Success Rate (last 100 eps): {final_success_rate:.1f}%")
+        print(f"Total Episodes: {len(success_callback_p2.episode_successes)}")
+        print(f"Model saved to: ppo_phase2_gathering.zip")
+    else:
+        print("Phase 2 Complete. Model saved.")
+    
+    return True
 
 if __name__ == "__main__":
     main()

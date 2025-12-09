@@ -58,8 +58,8 @@ def generate_map(config: Dict[str, Any]):
 
     # terrain distribution in middle region
     p_obstacle = config.get("p_obstacle", 0.15)
-    p_tree     = config.get("p_tree", 0.40)
-    p_rock     = config.get("p_rock", 0.40)
+    p_tree     = config.get("p_tree", 0.30)
+    p_rock     = config.get("p_rock", 0.30)
     # remainder = empty
 
     # ------------------------------------------------------------------
@@ -197,40 +197,13 @@ def generate_map(config: Dict[str, Any]):
     )
 
     # ------------------------------------------------------------------
-    # 8. Build state dict
+    # 8. Return essential state for Env
     # ------------------------------------------------------------------
-    state: Dict[str, Any] = {
-        "terrain": terrain,
-        "floor_type": floor_type,
-        "floor_count": floor_count,
+    # Env expects: grid, agent_pos, train_pos, station_pos
+    # train_pos is (row, first_head_col)
+    train_pos = (train_row, head_cols[0])
 
-        "agent_pos": agent_pos,
-        "train_front_pos": train_front_pos,
-        "train_row": train_row,
-        "train_length": train_length,
-        "train_storage_cols": storage_cols,
-        "train_crafter_cols": crafter_cols,
-        "train_head_cols": head_cols,
-        "initial_track_col": track_col,
-
-        "station_top_row": station_top_row,
-        "station_center_row": station_center_row,
-        "station_entry": station_entry,
-        "path_cells": path,
-
-        # carried items (agent inventory, not floor stacks)
-        "inventory": {
-            "wood": 0,
-            "metal": 0,
-            "tracks": 0,
-        },
-
-        "train_crashed": False,
-        "reached_station": False,
-        "step": 0,
-    }
-
-    return grid, state
+    return grid, agent_pos, train_pos, station_entry
 
 
 # =====================================================================
