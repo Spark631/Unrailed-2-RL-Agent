@@ -33,7 +33,7 @@ from configs.ppo_config import MOVEMENT_REWARDS, GATHERING_REWARDS, FULL_GAME_RE
 class UnrailedEnv(gym.Env):
     metadata = {"render_modes": ["human"], "render_fps": 4}
 
-    def __init__(self, reward_config=None, width=16, height=4, config=1, max_steps=1000, render_mode=None):
+    def __init__(self, reward_config=None, width=16, height=4, config=1, max_steps=50, render_mode=None):
         self.render_mode = render_mode
         self.config = config
         self.max_steps = max_steps
@@ -260,38 +260,6 @@ class UnrailedEnv(gym.Env):
             "agent_position": np.array(self.agent_position, dtype=np.int32),
         }
 
-    def get_adjacent_cells(self, r, c):
-        adj = []
-        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            nr, nc = r + dr, c + dc
-            if 0 <= nr < self.height and 0 <= nc < self.width:
-                adj.append((nr, nc))
-        return adj
-
-    def _get_bfs_distance(self, start, goal):
-        q = [(start, 0)]
-        visited = set([start])
-        
-        while q:
-            (r, c), dist = q.pop(0)
-            if (r, c) == goal:
-                return dist
-            
-            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < self.height and 0 <= nc < self.width:
-                    if (nr, nc) not in visited:
-                        is_obstacle = (self.grid[nr, nc, OBSTACLES] == 1)
-                        is_train = (self.grid[nr, nc, TRAIN_HEAD] == 1 or 
-                                    self.grid[nr, nc, TRAIN_STORAGE] == 1 or 
-                                    self.grid[nr, nc, TRAIN_CRAFTER] == 1)
-                        
-                        if not is_obstacle and not is_train:
-                            visited.add((nr, nc))
-                            q.append(((nr, nc), dist + 1))
-                            
-        return 999 
-
     def step(self, action):
         self.current_step += 1
         r, c = self.agent_position
@@ -325,7 +293,6 @@ class UnrailedEnv(gym.Env):
 
         # storing old position for distance comparison
         old_pos = tuple(self.agent_position)
-        prev_dist = self._get_bfs_distance(old_pos, self.station_position)
         
         if 0 <= r < self.height and 0 <= c < self.width:
             is_obstacle = (self.grid[r, c, OBSTACLES] == 1)
@@ -343,19 +310,13 @@ class UnrailedEnv(gym.Env):
             events.append('wall_bump')
 
         new_pos = tuple(self.agent_position)
+
+        delta = 0
         if new_pos != old_pos:
+            prev_dist = self._get_bfs_distance(old_pos, self.station_position)
             new_dist = self._get_bfs_distance(new_pos, self.station_position)
-            
-            if new_dist < prev_dist:
-                events.append('dist_closer')
-            elif new_dist > prev_dist:
-                events.append('dist_farther')
-            
-            self.pos_history.append(new_pos)
-            
-            if len(self.pos_history) >= 3:
-                if self.pos_history[-1] == self.pos_history[-3]:
-                    events.append('oscillation')
+            delta = prev_dist - new_dist
+
 
         done = False
         truncated = False
@@ -368,10 +329,35 @@ class UnrailedEnv(gym.Env):
             
         if self.current_step >= self.max_steps:
             truncated = True
+            # events.append('timeout')
         
-        reward = compute_reward(events, self.rewards)
+        reward = compute_reward(events, self.rewards, delta)
 
         return self._get_observation(), reward, done, truncated, {}
+    
+    def _get_bfs_distance(self, start, goal):
+        q = [(start, 0)]
+        visited = set([start])
+        
+        while q:
+            (r, c), dist = q.pop(0)
+            if (r, c) == goal:
+                return dist
+            
+            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < self.height and 0 <= nc < self.width:
+                    if (nr, nc) not in visited:
+                        is_obstacle = (self.grid[nr, nc, OBSTACLES] == 1)
+                        is_train = (self.grid[nr, nc, TRAIN_HEAD] == 1 or 
+                                    self.grid[nr, nc, TRAIN_STORAGE] == 1 or 
+                                    self.grid[nr, nc, TRAIN_CRAFTER] == 1)
+                        
+                        if not is_obstacle and not is_train:
+                            visited.add((nr, nc))
+                            q.append(((nr, nc), dist + 1))
+                            
+        return 999 
 
     def render(self):
         print("-" * self.width)
@@ -396,3 +382,4 @@ class UnrailedEnv(gym.Env):
                 line += char
             print(line)
         print("-" * self.width)
+    

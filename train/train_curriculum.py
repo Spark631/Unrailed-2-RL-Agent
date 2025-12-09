@@ -2,6 +2,7 @@ import sys
 import os
 import numpy as np
 import gymnasium as gym
+import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import BaseCallback
@@ -14,6 +15,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from envs.unrailed_env import UnrailedEnv
 from grid_extractor import GridInvExtractor
 
+print("CUDA available:", torch.cuda.is_available())
 
 class SuccessRateCallback(BaseCallback):
     def __init__(self, check_freq: int = 1000, verbose: int = 0):
@@ -35,7 +37,7 @@ class SuccessRateCallback(BaseCallback):
         reward = self.locals.get("rewards")[0]
         self.current_episode_reward += reward
         
-        if reward > 40: 
+        if reward > 90: 
             self.current_episode_success = True
         
         if self.n_calls % self.check_freq == 0 and len(self.episode_successes) > 0:
@@ -79,9 +81,9 @@ def main():
 
     success_callback = SuccessRateCallback(check_freq=2048, verbose=1)
     
-    model = PPO.load("ppo_phase1_movement", env=env_move, tensorboard_log="./tb_logs")
+    # model = PPO.load("ppo_phase1_movement", env=env_move, tensorboard_log="./tb_logs")
     model.learn(
-        total_timesteps=50000, 
+        total_timesteps=500000, 
         tb_log_name="PPO_Phase1_Movement",
         callback=success_callback
     )
