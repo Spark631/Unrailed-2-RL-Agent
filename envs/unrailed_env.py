@@ -86,7 +86,7 @@ class UnrailedEnv(gym.Env):
             'type': None,
             'target': None,
             'progress': 0,
-            'time_required': 10
+            'time_required': 3
         }
 
         self.remaining_trees = 0
@@ -114,7 +114,7 @@ class UnrailedEnv(gym.Env):
             'type': None,
             'target': None,
             'progress': 0,
-            'time_required': 5
+            'time_required': 3
         }
 
         map_config = {"seed": seed}
@@ -313,7 +313,9 @@ class UnrailedEnv(gym.Env):
         old_pos = tuple(self.agent_position)
         
         if 0 <= r < self.height and 0 <= c < self.width:
-            is_obstacle = (self.grid[r, c, OBSTACLES] == 1)
+            is_obstacle = (self.grid[r, c, OBSTACLES] == 1 or
+                           self.grid[r, c, TREES] == 1 or
+                           self.grid[r, c, STONE] == 1)
             is_train = (self.grid[r, c, TRAIN_HEAD] == 1 or 
                         self.grid[r, c, TRAIN_STORAGE] == 1 or 
                         self.grid[r, c, TRAIN_CRAFTER] == 1)
@@ -328,6 +330,20 @@ class UnrailedEnv(gym.Env):
             events.append('wall_bump')
 
         new_pos = tuple(self.agent_position)
+
+        # Check if we are in a valid gathering position (regardless of action)
+        is_ready_to_gather = False
+        nr, nc = self.agent_position
+        for ar, ac in self.get_adjacent_cells(nr, nc):
+            if self.grid[ar, ac, TREES] == 1 and self.inventory['held_item'] == 'axe':
+                is_ready_to_gather = True
+                break
+            if self.grid[ar, ac, STONE] == 1 and self.inventory['held_item'] == 'pickaxe':
+                is_ready_to_gather = True
+                break
+        
+        if is_ready_to_gather:
+            events.append('ready_to_gather')
 
         # Auto-Gathering Logic (After movement)
         # Only gather if we are standing still (STAY)
@@ -376,6 +392,7 @@ class UnrailedEnv(gym.Env):
             # 3. Increment progress if gathering
             if self.gathering['in_progress']:
                 self.gathering['progress'] += 1
+                events.append('gathering_progress')
                 if self.gathering['progress'] >= self.gathering['time_required']:
                     # Complete
                     gr, gc = self.gathering['target']
@@ -403,25 +420,47 @@ class UnrailedEnv(gym.Env):
             self.gathering['type'] = None
 
         delta = 0
-        if new_pos != old_pos:
-            prev_dist = self._get_bfs_distance(old_pos, self.station_position)
-            new_dist = self._get_bfs_distance(new_pos, self.station_position)
-            delta = prev_dist - new_dist
+        # DYNAMIC GOAL SCHEDULER
+        # If we performed an action that changes state (pickup/chop), skip delta to avoid discontinuities
+        state_changed = False
+        if 'pickup' in events: state_changed = True
+        if 'chop' in events: state_changed = True
+        if 'mine' in events: state_changed = True
+        if 'gathering_complete' in events: state_changed = True
+        
+        if state_changed:
+            delta = 0
+        elif new_pos != old_pos:
+            if self.config == 2:
+                # Phase 2: Dynamic targets based on inventory
+                targets = self._get_current_goal_targets()
+                if targets:
+                    prev_dist = self._get_distance_to_targets(old_pos, targets)
+                    new_dist = self._get_distance_to_targets(new_pos, targets)
+                    delta = prev_dist - new_dist
+            else:
+                # Phase 1/3: Station is the goal
+                prev_dist = self._get_bfs_distance(old_pos, self.station_position)
+                new_dist = self._get_bfs_distance(new_pos, self.station_position)
+                delta = prev_dist - new_dist
 
 
         done = False
         truncated = False
 
+        info = {}
         if self.grid[self.agent_position[0], self.agent_position[1], STATION] == 1:  # reached goal
             events.append('goal_reached')
             # Only terminate on goal for configs 1 and 3 (not config 2 - gathering)
             if self.config in [1, 3]:
                 done = True
+                info['is_success'] = True
         
         if self.config == 2:
             if self.remaining_trees == 0 and self.remaining_rocks == 0:
                 events.append('gathering_complete')
                 done = True
+                info['is_success'] = True
             
         if self.current_step >= self.max_steps:
             truncated = True
@@ -429,8 +468,92 @@ class UnrailedEnv(gym.Env):
         
         reward = compute_reward(events, self.rewards, delta)
 
-        return self._get_observation(), reward, done, truncated, {}
+        return self._get_observation(), reward, done, truncated, info
     
+    def _get_current_goal_targets(self):
+        """
+        Scheduler: Decides what the agent should look for based on inventory.
+        Returns a list of channel indices to search for.
+        """
+        held_item = self.inventory['held_item']
+        start_pos = tuple(self.agent_position)
+        max_dist = self.width + self.height
+
+        def is_reachable(channels):
+            return self._get_distance_to_targets(start_pos, channels) < max_dist
+
+        if held_item == 'axe':
+            # 1. Try Trees
+            if self.remaining_trees > 0:
+                if is_reachable([TREES]): return [TREES]
+                # Trees blocked? Try switching to Pickaxe
+                return [PICKAXE]
+            else:
+                return [PICKAXE]
+                
+        elif held_item == 'pickaxe':
+            # 1. Try Rocks
+            if self.remaining_rocks > 0:
+                if is_reachable([STONE]): return [STONE]
+                # Rocks blocked? Try switching to Axe
+                return [AXE]
+            else:
+                return [AXE]
+                
+        else:
+            # Holding nothing? Find reachable tool
+            can_reach_axe = is_reachable([AXE])
+            can_reach_pick = is_reachable([PICKAXE])
+            
+            # Prioritize based on what's reachable AND needed
+            if self.remaining_trees > 0 and can_reach_axe: return [AXE]
+            if self.remaining_rocks > 0 and can_reach_pick: return [PICKAXE]
+            
+            # If only one is reachable, go for it
+            if can_reach_axe: return [AXE]
+            if can_reach_pick: return [PICKAXE]
+            
+            # If neither reachable (shouldn't happen), default logic
+            if self.remaining_trees > 0: return [AXE]
+            return [PICKAXE]
+
+    def _get_distance_to_targets(self, start_pos, target_channels):
+        """BFS to find distance to the nearest block of ANY of the target channels"""
+        q = [(start_pos, 0)]
+        visited = set([start_pos])
+        
+        while q:
+            (r, c), dist = q.pop(0)
+            
+            # Check if current cell contains any of the targets
+            for channel in target_channels:
+                if self.grid[r, c, channel] == 1:
+                    return dist
+            
+            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < self.height and 0 <= nc < self.width:
+                    if (nr, nc) not in visited:
+                        is_obstacle = (self.grid[nr, nc, OBSTACLES] == 1)
+                        is_train = (self.grid[nr, nc, TRAIN_HEAD] == 1 or 
+                                    self.grid[nr, nc, TRAIN_STORAGE] == 1 or 
+                                    self.grid[nr, nc, TRAIN_CRAFTER] == 1)
+                        
+                        # Exception: If the target IS an obstacle (like a tree/rock), we can't walk ON it, 
+                        # but we want to walk NEXT to it.
+                        # However, this BFS checks the cell content. 
+                        # If target is TREE, grid[nr, nc, TREES] == 1.
+                        # We should return dist+1 if we find it.
+                        
+                        for channel in target_channels:
+                            if self.grid[nr, nc, channel] == 1:
+                                return dist + 1
+                        
+                        if not is_obstacle and not is_train:
+                            visited.add((nr, nc))
+                            q.append(((nr, nc), dist + 1))
+        return self.width + self.height
+
     def _get_bfs_distance(self, start, goal):
         q = [(start, 0)]
         visited = set([start])
@@ -453,7 +576,7 @@ class UnrailedEnv(gym.Env):
                             visited.add((nr, nc))
                             q.append(((nr, nc), dist + 1))
                             
-        return 999 
+        return self.width + self.height 
 
     def render(self):
         lines = ascii_from_grid(self.grid)

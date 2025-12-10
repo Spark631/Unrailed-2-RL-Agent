@@ -6,6 +6,8 @@ import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.utils import set_random_seed
 # from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
 # from stable_baselines3.common.monitor import Monitor
 
@@ -17,39 +19,38 @@ from grid_extractor import GridInvExtractor
 
 print("CUDA available:", torch.cuda.is_available())
 
+def make_env(config, rank, seed=0):
+    """
+    Utility function for multiprocessed env.
+    """
+    def _init():
+        env = UnrailedEnv(config=config)
+        env.reset(seed=seed + rank)
+        return env
+    set_random_seed(seed)
+    return _init
+
 class SuccessRateCallback(BaseCallback):
     def __init__(self, check_freq: int = 1000, verbose: int = 0):
         super().__init__(verbose)
         self.check_freq = check_freq
-        self.episode_rewards = []
         self.episode_successes = []
-        self.current_episode_reward = 0
-        self.current_episode_success = False
         
     def _on_step(self) -> bool:
-        reward = self.locals.get("rewards")[0]
-        self.current_episode_reward += reward
+        # Check for done episodes in all environments
+        dones = self.locals.get("dones")
+        infos = self.locals.get("infos")
         
-        if reward > 90: 
-            self.current_episode_success = True
-
-        if self.locals.get("dones")[0]:
-            self.episode_rewards.append(self.current_episode_reward)
-            self.episode_successes.append(1 if self.current_episode_success else 0)
-            
-            self.current_episode_reward = 0
-            self.current_episode_success = False
+        if dones is not None and infos is not None:
+            for i, done in enumerate(dones):
+                if done:
+                    info = infos[i]
+                    is_success = info.get("is_success", False)
+                    self.episode_successes.append(1 if is_success else 0)
         
         if self.n_calls % self.check_freq == 0 and len(self.episode_successes) > 0:
             success_rate = np.mean(self.episode_successes[-100:]) * 100  
-            mean_reward = np.mean(self.episode_rewards[-100:])
-            
             self.logger.record("custom/success_rate", success_rate)
-            self.logger.record("custom/mean_episode_reward", mean_reward)
-            self.logger.record("custom/total_episodes", len(self.episode_successes))
-            
-            if self.verbose > 0:
-                print(f"\nStep {self.n_calls}: Success Rate (last 100 eps): {success_rate:.1f}%, Mean Reward: {mean_reward:.2f}")
         
         return True
 
@@ -101,35 +102,48 @@ def main():
     # PHASE 2: GATHERING 
     print("\n=== PHASE 2: LEARNING TO GATHER (Config 2) ===")
     
-    env_gather = UnrailedEnv(config=2)
+    num_cpu = 8
+    # Create the vectorized environment
+    env_gather = SubprocVecEnv([make_env(config=2, rank=i) for i in range(num_cpu)])
     
     # Load Phase 1 model to start
     if not os.path.exists("ppo_phase1_movement.zip"):
         print("Error: ppo_phase1_movement.zip not found. Please train Phase 1 first.")
         return
 
-    print("Loading Phase 1 weights...")
+    print("Loading weights...")
+    # Resume from Phase 2 if available, otherwise start from Phase 1
+    if os.path.exists("ppo_phase2_gathering.zip"):
+        load_path = "ppo_phase2_gathering"
+        print("Resuming Phase 2 training...")
+    else:
+        load_path = "ppo_phase1_movement"
+        print("Starting Phase 2 from Phase 1 weights...")
+
     model = PPO.load(
-        "ppo_phase1_movement", 
+        load_path, 
         env=env_gather, 
         tensorboard_log="./tb_logs",
+        n_steps=512, # 512 * 8 = 4096 steps per update
+        batch_size=128,
         custom_objects={
             "features_extractor_class": GridInvExtractor,
             "features_extractor_kwargs": dict(features_dim=256),
         }
     )
     
-    # Lower learning rate for fine-tuning? Or keep same? 
-    # Usually fine-tuning uses smaller LR, but here the task is quite different (new rewards).
-    # We'll keep default or set it explicitly if needed. PPO.load preserves the optimizer state usually.
+    # Fine Tuning
+    model.learning_rate = 0.00005  # Very low LR for stable fine-tuning
+    model.ent_coef = 0.01          # Reduce exploration noise
     
-    success_callback_p2 = SuccessRateCallback(check_freq=2048, verbose=1)
+    
+    success_callback_p2 = SuccessRateCallback(check_freq=500, verbose=1)
     
     model.learn(
-        total_timesteps=300000,  # Increased to give time to learn gathering
-        tb_log_name="PPO_Phase2_Gathering",
+        total_timesteps=2000000,  # Increased for vectorized training
+        tb_log_name="PPO_Phase2_Gathering_Vec",
         callback=success_callback_p2,
-        reset_num_timesteps=True # WE WANT SEPARATE TENSORBOARD GRAPHS
+        reset_num_timesteps=False 
     )
     model.save("ppo_phase2_gathering")
     

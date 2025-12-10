@@ -58,8 +58,8 @@ def generate_map(config: Dict[str, Any]):
 
     # terrain distribution in middle region
     p_obstacle = config.get("p_obstacle", 0.15)
-    p_tree     = config.get("p_tree", 0.30)
-    p_rock     = config.get("p_rock", 0.30)
+    p_tree     = config.get("p_tree", 0.10)
+    p_rock     = config.get("p_rock", 0.10)
     # remainder = empty
 
     # ------------------------------------------------------------------

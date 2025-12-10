@@ -85,7 +85,7 @@ def main():
             step_count += 1
             
             # Predict the action
-            action, _states = model.predict(obs, deterministic=True)
+            action, _states = model.predict(obs, deterministic=False)
             
             # Take the action
             obs, reward, terminated, truncated, info = env.step(action)
