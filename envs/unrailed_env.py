@@ -448,19 +448,16 @@ class UnrailedEnv(gym.Env):
         done = False
         truncated = False
 
-        info = {}
         if self.grid[self.agent_position[0], self.agent_position[1], STATION] == 1:  # reached goal
             events.append('goal_reached')
             # Only terminate on goal for configs 1 and 3 (not config 2 - gathering)
             if self.config in [1, 3]:
                 done = True
-                info['is_success'] = True
         
         if self.config == 2:
             if self.remaining_trees == 0 and self.remaining_rocks == 0:
                 events.append('gathering_complete')
                 done = True
-                info['is_success'] = True
             
         if self.current_step >= self.max_steps:
             truncated = True
@@ -468,7 +465,7 @@ class UnrailedEnv(gym.Env):
         
         reward = compute_reward(events, self.rewards, delta)
 
-        return self._get_observation(), reward, done, truncated, info
+        return self._get_observation(), reward, done, truncated, {}
     
     def _get_current_goal_targets(self):
         """
