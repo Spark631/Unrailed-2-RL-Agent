@@ -32,14 +32,14 @@ def ascii_from_grid(grid):
 
             # Terrain
             if grid[r, c, OBSTACLES] == 1: ch = "#"
-            elif grid[r, c, TREES] == 1: ch = "Y"
+            elif grid[r, c, TREES] == 1: ch = "T"
             elif grid[r, c, STONE] == 1: ch = "R"
             elif grid[r, c, STATION] == 1: ch = "@"
-            elif grid[r, c, RAILROADS] == 1: ch = "-"
+            elif grid[r, c, RAILROADS] == 1: ch = "="
 
             # Items
-            if grid[r, c, PICKAXE] == 1: ch = "P"
-            elif grid[r, c, AXE] == 1: ch = "X"
+            if grid[r, c, PICKAXE] == 1: ch = "p"
+            elif grid[r, c, AXE] == 1: ch = "x"
             
             # Resources with counts
             if grid[r, c, WOOD] >= 1:
@@ -50,7 +50,7 @@ def ascii_from_grid(grid):
                 ch = "m" if cnt == 1 else str(min(cnt, 9))
             elif grid[r, c, TRACK_ITEM] >= 1:
                 cnt = int(grid[r, c, TRACK_ITEM])
-                ch = "t" if cnt == 1 else str(min(cnt, 9))
+                ch = "r" if cnt == 1 else str(min(cnt, 9))
 
             # Train
             if grid[r, c, TRAIN_STORAGE] == 1: ch = "S"
@@ -87,15 +87,15 @@ def main():
     print("\nLegend:")
     print("  .  = empty ground")
     print("  #  = obstacle (terrain)")
-    print("  Y  = tree (terrain)")
+    print("  T  = tree (terrain)")
     print("  R  = rock block (terrain)")
     print("  @  = station (terrain)")
-    print("  -  = laid track (RAILROADS, train path)")
-    print("  P  = pickaxe on floor")
-    print("  X  = axe on floor")
-    print("  w  = 1 wood on floor (29 = count)")
-    print("  m  = 1 metal on floor (29 = count)")
-    print("  t  = 1 track item on floor (29 = count)")
+    print("  =  = laid track (RAILROADS, train path)")
+    print("  p  = pickaxe on floor")
+    print("  x  = axe on floor")
+    print("  w  = 1 wood on floor (2-9 = count)")
+    print("  m  = 1 metal on floor (2-9 = count)")
+    print("  r  = 1 rail/track item on floor (2-9 = count)")
     print("  S  = storage wagon (train)")
     print("  C  = crafter wagon (train)")
     print("  H  = head/engine wagon (train)")

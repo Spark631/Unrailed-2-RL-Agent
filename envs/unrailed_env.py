@@ -3,6 +3,7 @@ import gymnasium as gym
 from gymnasium import spaces
 from collections import deque
 from utils.map_gen import generate_map
+from utils.visualize_map import ascii_from_grid
 
 STAY = 0
 UP = 1
@@ -33,7 +34,7 @@ from configs.ppo_config import MOVEMENT_REWARDS, GATHERING_REWARDS, FULL_GAME_RE
 class UnrailedEnv(gym.Env):
     metadata = {"render_modes": ["human"], "render_fps": 4}
 
-    def __init__(self, reward_config=None, width=16, height=4, config=1, max_steps=50, render_mode=None):
+    def __init__(self, reward_config=None, width=16, height=4, config=1, max_steps=200, render_mode=None):
         self.render_mode = render_mode
         self.config = config
         self.max_steps = max_steps
@@ -416,6 +417,11 @@ class UnrailedEnv(gym.Env):
             # Only terminate on goal for configs 1 and 3 (not config 2 - gathering)
             if self.config in [1, 3]:
                 done = True
+        
+        if self.config == 2:
+            if self.remaining_trees == 0 and self.remaining_rocks == 0:
+                events.append('gathering_complete')
+                done = True
             
         if self.current_step >= self.max_steps:
             truncated = True
@@ -450,26 +456,9 @@ class UnrailedEnv(gym.Env):
         return 999 
 
     def render(self):
+        lines = ascii_from_grid(self.grid)
         print("-" * self.width)
-        for r in range(self.height):
-            line = ""
-            for c in range(self.width):
-                char = '.'
-                if self.grid[r, c, AGENT] == 1: char = 'A'
-                elif self.grid[r, c, TRAIN_HEAD] == 1: char = 'H'
-                elif self.grid[r, c, TRAIN_CRAFTER] == 1: char = 'C'
-                elif self.grid[r, c, TRAIN_STORAGE] == 1: char = 'S'
-                elif self.grid[r, c, STATION] == 1: char = 'X'
-                elif self.grid[r, c, OBSTACLES] == 1: char = '#'
-                elif self.grid[r, c, TREES] == 1: char = 'T'
-                elif self.grid[r, c, STONE] == 1: char = 'O'
-                elif self.grid[r, c, WOOD] == 1: char = 'w'
-                elif self.grid[r, c, METAL] == 1: char = 'm'
-                elif self.grid[r, c, TRACK_ITEM] == 1: char = 'r'
-                elif self.grid[r, c, RAILROADS] == 1: char = '='
-                elif self.grid[r, c, AXE] == 1: char = 'x'
-                elif self.grid[r, c, PICKAXE] == 1: char = 'p'
-                line += char
+        for line in lines:
             print(line)
         print("-" * self.width)
     

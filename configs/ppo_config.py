@@ -43,19 +43,16 @@ MOVEMENT_REWARDS = {
 
 # Config 2: Resource Gathering
 GATHERING_REWARDS = {
-    'step_penalty': -0.02,
-    'wall_bump': -0.1,          
-    'goal_reached': 0.0,        
-    'chop': 5.0,                
-    'mine': 5.0,                
-    'pickup': 0.5,              
+    'step_penalty': -0.1,
+    'wall_bump': -1.0,
+    'gathering_complete': 80.0,
+    'chop': 10.0,
+    'mine': 10.0,
+    'pickup': 0.2,
     'pickup_rail': 0.0,
     'action_interact': 0.0,
-    'action_stay': -0.1,
+    'action_stay': 0.0,
     'place_rail': 0.0,
-    'deposit': 2.0,             #
-    'craft_complete': 10.0,     #
-    'dist_closer': 0.0,        
-    'dist_farther': 0.0,
-    'oscillation': -0.5         
+    'deposit': 0.0,
+    'craft_complete': 0.0,
 }

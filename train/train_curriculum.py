@@ -27,18 +27,18 @@ class SuccessRateCallback(BaseCallback):
         self.current_episode_success = False
         
     def _on_step(self) -> bool:
+        reward = self.locals.get("rewards")[0]
+        self.current_episode_reward += reward
+        
+        if reward > 90: 
+            self.current_episode_success = True
+
         if self.locals.get("dones")[0]:
             self.episode_rewards.append(self.current_episode_reward)
             self.episode_successes.append(1 if self.current_episode_success else 0)
             
             self.current_episode_reward = 0
             self.current_episode_success = False
-        
-        reward = self.locals.get("rewards")[0]
-        self.current_episode_reward += reward
-        
-        if reward > 90: 
-            self.current_episode_success = True
         
         if self.n_calls % self.check_freq == 0 and len(self.episode_successes) > 0:
             success_rate = np.mean(self.episode_successes[-100:]) * 100  
@@ -129,7 +129,7 @@ def main():
         total_timesteps=300000,  # Increased to give time to learn gathering
         tb_log_name="PPO_Phase2_Gathering",
         callback=success_callback_p2,
-        reset_num_timesteps=False  # Continue timestep count from Phase 1
+        reset_num_timesteps=True # WE WANT SEPARATE TENSORBOARD GRAPHS
     )
     model.save("ppo_phase2_gathering")
     

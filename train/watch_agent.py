@@ -75,7 +75,7 @@ def main():
         done = False
         total_reward = 0
         step_count = 0
-        max_steps = 1000  # Prevent infinite loops
+        max_steps = 200  # Prevent infinite loops
         
         print(f"\n--- Episode {ep} ---")
         env.render()
